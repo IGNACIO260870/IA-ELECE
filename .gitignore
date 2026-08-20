@@ -1,0 +1,24 @@
+# DATOS DE CLIENTES, NUNCA. Esta es la regla de Ignacio y no admite
+# excepciones: nombres, DNI, teléfonos, autos, importes, NIG ni números de
+# expediente entran jamás en git. Ni en un fichero, ni en un log, ni en un
+# comentario del código.
+datos/
+data/
+*.log
+logs/
+
+# Credenciales
+.env
+*.env
+!.env.ejemplo
+
+# Cosas del entorno
+.venv/
+__pycache__/
+*.pyc
+*.bak
+~$*
+
+# Windows
+Thumbs.db
+desktop.ini
