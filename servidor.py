@@ -25,14 +25,16 @@ que se ponga en el servidor del despacho se abrira con lo que corresponda
 abierto por descuido hoy.
 """
 
+import base64
 import sys
 from pathlib import Path
 
-from fastapi import FastAPI
-from fastapi.responses import FileResponse, HTMLResponse
+from fastapi import FastAPI, Request
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
 RAIZ = Path(__file__).resolve().parent
 sys.path.insert(0, str(RAIZ))
+sys.path.insert(0, str(RAIZ / "compliance"))
 
 from panel_html import pagina, pagina_tarjeta  # noqa: E402
 
@@ -49,7 +51,116 @@ def inicio():
 
 @app.get("/tarjeta/{tid}", response_class=HTMLResponse)
 def tarjeta(tid: str):
+    # COMPLIANCE YA TIENE CONTENIDO. Las demas tarjetas siguen esperando a
+    # que Mamen diga que va dentro; esta se empezo el 25/08/2026.
+    if tid == "compliance":
+        import pantallas
+        return pantallas.pagina_compliance()
     return pagina_tarjeta(tid)
+
+
+@app.get("/compliance/informe", response_class=HTMLResponse)
+def compliance_informe():
+    """El informe ejecutivo: base, metodologia y sistema de trabajo."""
+    from informe_html import INFORME
+    return INFORME
+
+
+@app.get("/compliance/metodologia", response_class=HTMLResponse)
+def compliance_metodologia():
+    """Las escalas y los pesos, para poder ensenarlos."""
+    import pantallas
+    return pantallas.pagina_metodologia()
+
+
+@app.get("/compliance/proyecto/{clave}", response_class=HTMLResponse)
+def compliance_proyecto(clave: str):
+    """El expediente de una empresa, con su supervisor y sus entrevistas."""
+    import pantallas
+    return pantallas.pagina_proyecto(clave)
+
+
+@app.get("/compliance/entrevistas", response_class=HTMLResponse)
+def compliance_entrevistas(d: str = ""):
+    """La arquitectura de entrevistas por departamento."""
+    import pantallas
+    return pantallas.pagina_entrevistas(d)
+
+
+@app.get("/compliance/documentacion", response_class=HTMLResponse)
+def compliance_documentacion(cif: str = "", nombre: str = "", web: str = ""):
+    """Todo lo que se saca del CIF sin pedirselo a nadie."""
+    import pantallas
+    return pantallas.pagina_documentacion(cif, nombre, web)
+
+
+@app.get("/compliance/matriz.xlsx")
+def compliance_plantilla():
+    """La matriz en blanco: la herramienta principal de la tarjeta.
+
+    Sale siempre recien generada, con el catalogo y los criterios vigentes.
+    Nadie trabaja sobre una copia vieja sin saberlo."""
+    import generar_excel
+    sitio = (RAIZ / "datos" / "plantillas" /
+             "ELC-CP-PLANTILLA-MTZ_Matriz_riesgos_penales.xlsx")
+    generar_excel.generar(sitio, None)
+    return FileResponse(sitio, filename=sitio.name, media_type=(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+
+
+@app.get("/compliance/proyecto/{clave}/matriz.xlsx")
+def compliance_matriz(clave: str):
+    """La matriz en Excel, con la metodologia dentro y calculando sola.
+
+    Se genera cada vez: asi el fichero sale siempre con el catalogo y los
+    criterios vigentes, y nunca con una copia vieja de hace tres meses."""
+    import entregables, generar_excel, proyectos
+    p = proyectos.leer(clave)
+    if p is None:
+        return HTMLResponse("no existe ese proyecto", status_code=404)
+    if not p.get("codigo"):
+        p["codigo"] = entregables.codigo(p["empresa"], "MTZ")
+        proyectos.guardar(p)
+    nombre = f"{p['codigo']}_Matriz_riesgos_penales.xlsx"
+    sitio = proyectos.carpeta(clave) / "entregables" / nombre
+    generar_excel.generar(sitio, p)
+    return FileResponse(sitio, filename=nombre, media_type=(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+
+
+@app.post("/compliance/proyecto")
+async def compliance_crear(peticion: Request):
+    """Abre un proyecto. Llega del formulario de la tarjeta."""
+    import proyectos
+    cuerpo = (await peticion.body()).decode("utf-8")
+    from urllib.parse import parse_qs, unquote_plus
+    datos = {k: unquote_plus(v[0]) for k, v in parse_qs(cuerpo).items()}
+    nombre = (datos.get("empresa") or "").strip()
+    if not nombre:
+        return RedirectResponse("/tarjeta/compliance", status_code=303)
+    p = proyectos.crear(nombre, cif=datos.get("cif", ""),
+                        tipo_trabajo=datos.get("tipo_trabajo", ""))
+    return RedirectResponse(f"/compliance/proyecto/{p['clave']}",
+                            status_code=303)
+
+
+@app.post("/compliance/proyecto/{clave}/entrevista")
+def compliance_entrevista(clave: str, datos: dict):
+    """El canal de entrevistas: audio, video o notas, al expediente.
+
+    Llega en base64 desde el navegador para no depender de multipart: un
+    equipo del despacho no tiene por que tener nada instalado."""
+    import proyectos
+    try:
+        crudo = base64.b64decode(datos.get("datos", ""), validate=True)
+    except Exception as e:  # noqa: BLE001
+        return {"ok": False, "porque": f"el fichero no llego entero: {e!s:.50}"}
+    if not crudo:
+        return {"ok": False, "porque": "el fichero venia vacio"}
+    return proyectos.guardar_entrevista(
+        clave, datos.get("nombre", "entrevista"), crudo,
+        area=(datos.get("area") or "").strip(),
+        quien=(datos.get("quien") or "").strip())
 
 
 @app.get("/estatico/{nombre}")

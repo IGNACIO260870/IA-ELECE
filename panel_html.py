@@ -39,8 +39,10 @@ TARJETAS = [
      "pie": "Por definir con Mamen"},
     {"id": "proyectos", "titulo": "Proyectos",
      "pie": "Por definir con Mamen"},
+    # La primera tarjeta con contenido, desde el 25/08/2026: un proyecto por
+    # empresa, con su supervisor, su canal de entrevistas y sus entregables.
     {"id": "compliance", "titulo": "Compliance",
-     "pie": "Por definir con Mamen"},
+     "pie": "Un proyecto por empresa · matriz de riesgos penales"},
 ]
 
 
