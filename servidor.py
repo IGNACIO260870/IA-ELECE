@@ -80,6 +80,97 @@ def compliance_proyecto(clave: str):
     return pantallas.pagina_proyecto(clave)
 
 
+@app.post("/compliance/proyecto/{clave}/entrevista/{fichero}/procesar")
+def compliance_procesar(clave: str, fichero: str):
+    """Saca el texto de una entrevista, si se puede sacar."""
+    import procesar_entrevista
+    procesar_entrevista.procesar(clave, fichero)
+    return RedirectResponse(
+        f"/compliance/proyecto/{clave}/entrevista/{fichero}/texto",
+        status_code=303)
+
+
+@app.get("/compliance/proyecto/{clave}/entrevista/{fichero}/texto",
+         response_class=HTMLResponse)
+def compliance_texto(clave: str, fichero: str):
+    """El texto de la entrevista: verlo o pegarlo."""
+    import pantallas
+    return pantallas.pagina_transcripcion(clave, fichero)
+
+
+@app.post("/compliance/proyecto/{clave}/entrevista/{fichero}/texto")
+async def compliance_texto_guardar(clave: str, fichero: str,
+                                   peticion: Request):
+    from urllib.parse import parse_qs, unquote_plus
+    import procesar_entrevista
+    crudo = parse_qs((await peticion.body()).decode("utf-8"))
+    texto = unquote_plus((crudo.get("texto") or [""])[0])
+    procesar_entrevista.guardar_transcripcion(clave, fichero, texto)
+    return RedirectResponse(f"/compliance/proyecto/{clave}", status_code=303)
+
+
+@app.post("/compliance/proyecto/{clave}/entrevista/{fichero}/confirmar")
+def compliance_confirmar(clave: str, fichero: str):
+    """Mamen da por buena la entrevista. Sin esto no cuenta como hecha."""
+    import procesar_entrevista
+    procesar_entrevista.confirmar(clave, fichero, True)
+    return RedirectResponse(f"/compliance/proyecto/{clave}", status_code=303)
+
+
+@app.get("/compliance/proyecto/{clave}/aplicabilidad", response_class=HTMLResponse)
+def compliance_aplicabilidad(clave: str):
+    """Los 43 delitos, uno a uno, con su motivo."""
+    import pantallas
+    return pantallas.pagina_aplicabilidad(clave)
+
+
+@app.post("/compliance/proyecto/{clave}/aplicabilidad")
+async def compliance_aplicabilidad_guardar(clave: str, peticion: Request):
+    """Guarda la decision de cada delito. Un descarte sin motivo no vale."""
+    from urllib.parse import parse_qs, unquote_plus
+    import catalogo, proyectos
+    p = proyectos.leer(clave)
+    if p is None:
+        return RedirectResponse("/tarjeta/compliance", status_code=303)
+    crudo = parse_qs((await peticion.body()).decode("utf-8"))
+    datos = {k: unquote_plus(v[0]) for k, v in crudo.items()}
+    fuera = []
+    for idd, nombre, _fam, ref, _sev, _nota in catalogo.DELITOS:
+        elegido = datos.get(f"ap_{idd}")
+        fuera.append({
+            "id": idd, "nombre": nombre, "referencia": ref,
+            "aplica": (True if elegido == "si"
+                       else (False if elegido == "no" else None)),
+            "motivo": (datos.get(f"mo_{idd}") or "").strip(),
+        })
+    p["delitos"] = fuera
+    proyectos.guardar(p)
+    return RedirectResponse(f"/compliance/proyecto/{clave}", status_code=303)
+
+
+@app.post("/compliance/proyecto/{clave}/responder")
+async def compliance_responder(clave: str, peticion: Request):
+    """Guarda una respuesta y pasa a la siguiente pregunta."""
+    from urllib.parse import parse_qs, unquote_plus
+    import preguntas, proyectos
+    p = proyectos.leer(clave)
+    if p is None:
+        return RedirectResponse("/tarjeta/compliance", status_code=303)
+    crudo = parse_qs((await peticion.body()).decode("utf-8"))
+    datos = {k: [unquote_plus(x) for x in v] for k, v in crudo.items()}
+    campo = (datos.get("campo") or [""])[0]
+    valores = datos.get("valor") or [""]
+    valor = valores if campo == "disparadores" else valores[0]
+    preguntas.guardar_respuesta(p, campo, valor)
+    if campo == "apetito":
+        # El umbral no vale sin saber QUIEN lo aprobo: es una decision
+        # indelegable del organo de gobierno, no un numero suelto.
+        p["apetito_firmado_por"] = (datos.get("firmado") or [""])[0].strip()
+        p["apetito_fecha"] = (datos.get("fecha") or [""])[0].strip()
+    proyectos.guardar(p)
+    return RedirectResponse(f"/compliance/proyecto/{clave}", status_code=303)
+
+
 @app.get("/compliance/entrevistas", response_class=HTMLResponse)
 def compliance_entrevistas(d: str = ""):
     """La arquitectura de entrevistas por departamento."""

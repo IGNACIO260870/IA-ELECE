@@ -177,9 +177,15 @@ def pagina_compliance():
       <form method="post" action="/compliance/proyecto" class="fila">
         <input name="empresa" placeholder="Empresa" required style="min-width:230px">
         <input name="cif" placeholder="CIF" style="width:130px">
+        <!-- EL TRABAJO ES EL SISTEMA, NO EL INFORME. Ignacio, 26/08/2026:
+             "necesito que el proyecto se llame sistema de gestión de riesgos
+             penales". Es el nombre correcto y ya venía así en la portada de
+             la matriz de 2022: el SGRP es lo que se implanta y se mantiene;
+             la evaluación de riesgos es uno de sus entregables, no el
+             encargo. -->
         <select name="tipo_trabajo">
           <option value="">— tipo de trabajo —</option>
-          <option>Evaluación de riesgos penales</option>
+          <option>Sistema de gestión de riesgos penales (SGRP)</option>
           <option>Auditoría interna UNE 19601:2025</option>
           <option>Transición 2017 a 2025</option>
           <option>Seguimiento</option>
@@ -192,15 +198,112 @@ def pagina_compliance():
 
 
 # ---------------------------------------------------------------------------
-def _linea(x):
+# DÓNDE SE ARREGLA CADA COSA. Ignacio, 26/08/2026: "¿cómo puedo completar
+# lo que falta en el supervisor?". Un supervisor que señala y no dice por
+# dónde se empieza convierte cada punto rojo en un acertijo. Así que cada
+# línea lleva su puerta.
+_COMO_SE_ARREGLA = {
+    "encargo": ("Contéstalo en las preguntas de arriba", ""),
+    "contexto": ("Contéstalo en las preguntas de arriba", ""),
+    "catalogo": ("Contéstalo en las preguntas de arriba", ""),
+    "gobierno": ("Contéstalo en las preguntas de arriba", ""),
+    "evidencias": ("Herramientas → Documentación de la empresa",
+                   "/compliance/documentacion"),
+    "entregables": ("Contéstalo en las preguntas de arriba", ""),
+    "aplicabilidad": ("Decidir los 43 delitos", "APLICABILIDAD"),
+    "entrevistas": ("Ver el guion del área y subir la entrevista aquí abajo",
+                    "/compliance/entrevistas"),
+    "valoracion": ("Se rellena en la matriz, hoja MATRIZ", "MATRIZ"),
+    "controles": ("Se rellenan en la matriz, hoja CONTROLES", "MATRIZ"),
+}
+
+
+def _linea(x, clave=""):
+    texto, destino = _COMO_SE_ARREGLA.get(x.get("fase", ""), ("", ""))
+    if destino == "APLICABILIDAD":
+        destino = f"/compliance/proyecto/{clave}/aplicabilidad"
+    elif destino == "MATRIZ":
+        destino = f"/compliance/proyecto/{clave}/matriz.xlsx"
+    if x["estado"] == "hecho" or not texto:
+        accion = ""
+    elif destino:
+        accion = (f'<a href="{E(destino)}" style="color:{ROJO};'
+                  f'font-weight:600;text-decoration:none;font-size:13px">'
+                  f'&rarr; {E(texto)}</a>')
+    else:
+        accion = (f'<span style="color:{GRIS};font-size:13px">&uarr; '
+                  f'{E(texto)}</span>')
     return f"""<tr>
       <td class="n"><span class="et {x['estado']}">{
         {'hecho':'está','pendiente':'falta','no_se':'no lo sé'}[x['estado']]
       }</span></td>
       <td><b>{E(x['que'])}</b><br>{E(x['detalle'])}
         {f'<span class="norma">{E(x["norma"])}</span>' if x.get('norma') else ''}</td>
+      <td class="n">{accion}</td>
     </tr>"""
 
+
+
+def _caja_pregunta(clave, p):
+    """La siguiente pregunta, y sólo esa.
+
+    Ignacio, 26/08/2026: "no me preguntas lo que necesitas de la Excel".
+    Aquí es donde la herramienta pregunta. Una cada vez, con su porqué
+    delante: lo que se pide sin explicar por qué se contesta a desgana, y en
+    este trabajo la respuesta acaba en un informe que firma alguien.
+    """
+    import preguntas as pg                            # noqa: PLC0415
+    hechas, total = pg.cuantas(p)
+    q = pg.siguiente(p)
+    if q is None:
+        return (f'<div class="hoja"><h2>Todo preguntado</h2>'
+                f'<p class="sub">Las {total} respuestas están. Lo siguiente '
+                f'es la aplicabilidad de los 43 delitos y las entrevistas.</p>'
+                f'</div>')
+    campo, pregunta, ayuda, porque, tipo, opciones = q
+    if tipo == "largo":
+        campo_html = (f'<textarea name="valor" rows="3" required '
+                      f'style="width:100%"></textarea>')
+    elif tipo == "opciones":
+        ops = "".join(f'<option>{E(o)}</option>' for o in opciones)
+        campo_html = f'<select name="valor" required style="min-width:320px">{ops}</select>'
+    elif tipo == "opciones_varias":
+        campo_html = "".join(
+            f'<label style="display:block;margin:5px 0;font-size:14px">'
+            f'<input type="checkbox" name="valor" value="{E(o)}" checked> '
+            f'{E(o)}</label>' for o in opciones)
+    elif tipo == "fecha_hoy":
+        campo_html = ('<input name="valor" type="date" required '
+                      'value="" style="width:190px">')
+    elif tipo == "apetito":
+        campo_html = ('<div class="fila">'
+                      '<input name="valor" type="number" min="1" max="25" '
+                      'placeholder="1-25" style="width:110px">'
+                      '<input name="firmado" placeholder="Aprobado por" '
+                      'style="min-width:230px">'
+                      '<input name="fecha" type="date" style="width:180px">'
+                      '</div>')
+    else:
+        campo_html = '<input name="valor" required style="min-width:420px">'
+
+    return f'''
+    <div class="hoja" style="border-left:5px solid {ROJO}">
+      <p style="margin:0 0 6px;font-size:12px;letter-spacing:.08em;
+         color:{GRIS};font-weight:600">SIGUIENTE PREGUNTA · {hechas} de {total}</p>
+      <h2 style="font-size:22px">{E(pregunta)}</h2>
+      <p class="sub" style="margin:0 0 6px">{E(ayuda)}</p>
+      <p style="margin:0 0 14px;font-size:13.5px;color:{ROJO}">
+        <b>Para qué sirve:</b> {E(porque)}</p>
+      <form method="post" action="/compliance/proyecto/{E(clave)}/responder">
+        <input type="hidden" name="campo" value="{E(campo)}">
+        {campo_html}
+        <div class="fila" style="margin-top:12px">
+          <button>Guardar y siguiente</button>
+          <a href="/compliance/proyecto/{E(clave)}?saltar={E(campo)}"
+             style="color:{GRIS};font-size:13.5px">lo dejo para luego</a>
+        </div>
+      </form>
+    </div>'''
 
 def pagina_proyecto(clave):
     rev = sp.revisar(clave)
@@ -209,18 +312,49 @@ def pagina_proyecto(clave):
                       "/tarjeta/compliance")
     p = rev["proyecto"]
     ent = p.get("entrevistas") or []
-    filas_ent = "".join(f"""<tr><td>{E(e.get('area') or '—')}</td>
+    # CADA ENTREVISTA, CON LO QUE SE PUEDE HACER CON ELLA. Ignacio,
+    # 26/08/2026: "si subo una, ¿no debería haber un botón de procesar?".
+    # Guardar ya se guardaba solo al soltarla; lo que faltaba era el paso
+    # siguiente. Y los botones dicen la verdad: el audio no se transcribe
+    # todavía porque en este equipo no hay motor y nada sale a la nube.
+    import procesar_entrevista as pe                  # noqa: PLC0415
+    _filas = []
+    for e in ent:
+        f = e.get("fichero", "")
+        estado = ("confirmada" if e.get("confirmada") else
+                  ("transcrita" if e.get("transcrita") else "sin procesar"))
+        marca = ("hecho" if e.get("confirmada") else
+                 ("pendiente" if e.get("transcrita") else "no_se"))
+        base = f"/compliance/proyecto/{E(clave)}/entrevista/{E(f)}"
+        if e.get("transcrita"):
+            accion = (f'<a href="{base}/texto" style="color:{ROJO};'
+                      f'font-weight:600;text-decoration:none;font-size:13px">'
+                      f'ver el texto</a>')
+            if not e.get("confirmada"):
+                accion += (f' · <form method="post" style="display:inline" '
+                           f'action="{base}/confirmar"><button class="claro" '
+                           f'style="padding:3px 10px;font-size:12.5px">dar por '
+                           f'buena</button></form>')
+        elif pe.se_puede_leer(f):
+            accion = (f'<form method="post" style="display:inline" '
+                      f'action="{base}/procesar"><button '
+                      f'style="padding:4px 12px;font-size:12.5px">Procesar'
+                      f'</button></form>')
+        else:
+            accion = (f'<a href="{base}/texto" style="color:{ROJO};'
+                      f'font-weight:600;text-decoration:none;font-size:13px">'
+                      f'pegar la transcripción</a>')
+        palabras = (f"<span class='norma'>{e.get('palabras')} palabras</span>"
+                    if e.get("palabras") else "")
+        _filas.append(f"""<tr><td>{E(e.get('area') or '—')}</td>
         <td>{E(e.get('entrevistado') or '—')}</td><td>{E(e['tipo'])}</td>
         <td>{E(e['subido'][:16].replace('T',' '))}</td>
         <td class="n">{e['bytes']//1024} KB</td>
-        <td><span class="et {'hecho' if e.get('confirmada') else 'pendiente'}">{
-          'confirmada' if e.get('confirmada') else
-          ('transcrita' if e.get('transcrita') else 'sin transcribir')}</span></td>
-        </tr>""" for e in ent) or \
-        '<tr><td colspan="6" style="color:#8a8578">Todavía no hay ninguna.</td></tr>'
-
-    filas_ent_html = filas_ent
-    ents = "".join(en_ for en_ in [])  # placeholder no usado
+        <td><span class="et {marca}">{estado}</span>{palabras}</td>
+        <td class="n">{accion}</td></tr>""")
+    filas_ent_html = "".join(_filas) or (
+        '<tr><td colspan="7" style="color:#8a8578">Todavía no hay '
+        'ninguna.</td></tr>')
 
     entregas = en.del_proyecto(p)
     filas_ent2 = "".join(f"""<tr><td class="cod">{E(x['codigo'])}</td>
@@ -230,7 +364,7 @@ def pagina_proyecto(clave):
         for x in entregas)
 
     areas = ", ".join(p.get("areas") or []) or "sin definir"
-    cuerpo = f"""
+    cuerpo = _caja_pregunta(clave, p) + f"""
     <div class="hoja">
       <div class="semaforo {rev['estado']}">
         <b>{'Todo en regla' if rev['estado']=='hecho' else
@@ -241,6 +375,21 @@ def pagina_proyecto(clave):
       <p class="sub">{E(p.get('tipo_trabajo') or 'sin tipo de trabajo')} ·
         CIF {E(p.get('cif') or '—')} · responsable {E(p.get('responsable'))} ·
         áreas: {E(areas)} · revisado {E(rev['cuando'])}</p>
+      <!-- NO HAY BOTÓN DE GUARDAR PORQUE NO HACE FALTA. Ignacio, 26/08/2026:
+           "debería haber un botón de guardar cambios en este proyecto, porque
+           puede que nos cueste muchos días hacer un proyecto". La
+           preocupación es la correcta; la solución no es un botón. Cada
+           respuesta, cada entrevista y cada decisión se escriben en el disco
+           en el momento, así que no hay nada que se pueda perder por cerrar
+           la ventana o apagar el equipo. Un botón de guardar induciría el
+           error contrario: creer que lo que no se pulsó, se perdió. Lo que sí
+           hacía falta era DECIRLO, y decir dónde está el expediente. -->
+      <p class="sub" style="margin:-8px 0 14px; font-size:13px">
+        <b style="color:#127A4A">✓ Todo se guarda solo</b>, en el momento.
+        Última escritura: {E((p.get('tocado') or '')[:16].replace('T',' '))} ·
+        el expediente vive en
+        <span class="cod">datos\\proyectos\\{E(p['clave'])}</span> y no sale
+        de este equipo.</p>
       <p class="enlaces">
         <a href="/compliance/proyecto/{E(clave)}/matriz.xlsx"><b>&darr;
           Descargar la matriz en Excel</b></a>
@@ -252,14 +401,14 @@ def pagina_proyecto(clave):
     <div class="hoja">
       <h2>Supervisor · ¿está?</h2>
       <p class="sub">Lo que hace falta para poder hacer la matriz.</p>
-      <table>{"".join(_linea(x) for x in rev['esta'])}</table>
+      <table>{"".join(_linea(x, clave) for x in rev["esta"])}</table>
     </div>
 
     <div class="hoja">
       <h2>Supervisor · ¿está bien?</h2>
       <p class="sub">Una matriz puede estar completa y no valer nada. Esto es
         lo que nadie mira y lo que hunde un expediente.</p>
-      <table>{"".join(_linea(x) for x in rev['bien'])}</table>
+      <table>{"".join(_linea(x, clave) for x in rev["bien"])}</table>
     </div>
 
     <div class="hoja">
@@ -278,7 +427,7 @@ def pagina_proyecto(clave):
       </div>
       <table style="margin-top:16px">
         <tr><th>Área</th><th>Entrevistado</th><th>Tipo</th><th>Subido</th>
-            <th class="n">Tamaño</th><th>Estado</th></tr>
+            <th class="n">Tamaño</th><th>Estado</th><th class="n">Qué hacer</th></tr>
         {filas_ent_html}
       </table>
     </div>
@@ -658,3 +807,158 @@ def pagina_documentacion(cif="", nombre="", web=""):
     </div>"""
     return _marco("Documentación de la empresa", cuerpo, "/tarjeta/compliance",
                   "Lo que se saca del CIF sin pedírselo a nadie.")
+
+
+# ---------------------------------------------------------------------------
+# LA APLICABILIDAD: qué delitos le pueden pasar a esta organización
+# ---------------------------------------------------------------------------
+# Es el punto del supervisor que no tenía dónde hacerse, y es el que más pesa:
+# de aquí sale qué se valora y qué se descarta. El 4.5.2 de la UNE 19601:2025
+# exige considerar TODOS los delitos del Código Penal vigente, y considerar no
+# es borrar de la lista: es dejar escrito por qué se descarta.
+#
+# LO QUE SE TRAE HECHO. Según lo que es la organización, hay delitos que casi
+# con seguridad aplican y otros que casi con seguridad no. Eso se propone
+# marcado, con su motivo redactado, para que sólo haya que confirmar o
+# corregir. Lo que NO se hace es darlo por decidido: mientras nadie lo
+# confirme, cuenta como pendiente.
+_SIN_ANIMO_DE_LUCRO = {
+    "D22": "Recibe o puede recibir subvenciones y ayudas públicas.",
+    "D23": "Puede ser destinataria de fondos europeos.",
+    "D18": "Maneja donativos y efectivo.",
+    "D24": "Tiene personal contratado y voluntariado.",
+    "D20": "Tiene obligaciones tributarias propias.",
+    "D21": "Tiene obligaciones con la Seguridad Social.",
+    "D06": "Trata datos de personas en situación de vulnerabilidad.",
+    "D03": "Trabaja con personas y hay relación de superioridad.",
+}
+_IMPROBABLES_SIN_LUCRO = {
+    "D15": "No opera en mercados de valores.",
+    "D19": "No financia partidos políticos.",
+    "D30": "No maneja energía nuclear ni radiaciones ionizantes.",
+    "D01": "No interviene en trasplantes ni extracción de órganos.",
+    "D35": "No fabrica ni distribuye moneda.",
+}
+
+
+def _propuesta(p):
+    """Lo que yo propondría para esta organización, y por qué."""
+    cif = str(p.get("cif") or "").strip().upper()
+    letra = cif[:1]
+    if letra in ("G", "R", "N"):          # asociación, fundación, religiosa
+        return _SIN_ANIMO_DE_LUCRO, _IMPROBABLES_SIN_LUCRO, (
+            "Entidad sin ánimo de lucro. Pesan las ayudas públicas, el "
+            "efectivo y las personas; pierden peso el mercado y los negocios.")
+    return {}, {}, ""
+
+
+def pagina_aplicabilidad(clave):
+    import catalogo as cat                            # noqa: PLC0415
+    p = pr.leer(clave)
+    if p is None:
+        return _marco("No existe", '<div class="hoja"><p>Ese proyecto no '
+                      'está.</p></div>', "/tarjeta/compliance")
+    decidido = {d.get("id"): d for d in (p.get("delitos") or [])}
+    aplican, no_aplican, porque_propuesta = _propuesta(p)
+
+    filas = []
+    for idd, nombre, familia, ref, sev, nota in cat.DELITOS:
+        d = decidido.get(idd, {})
+        estado = d.get("aplica")
+        motivo = d.get("motivo", "")
+        sug = ""
+        if estado is None:
+            if idd in aplican:
+                sug = f'<span class="et pendiente">propuesta: SÍ</span> {E(aplican[idd])}'
+                motivo = motivo or aplican[idd]
+            elif idd in no_aplican:
+                sug = f'<span class="et pendiente">propuesta: NO</span> {E(no_aplican[idd])}'
+                motivo = motivo or no_aplican[idd]
+        marca = ("hecho" if estado is True else
+                 ("no_se" if estado is False else "pendiente"))
+        etiqueta = ("aplica" if estado is True else
+                    ("descartado" if estado is False else "sin decidir"))
+        filas.append(f"""
+      <tr>
+        <td class="n"><span class="et {marca}">{etiqueta}</span></td>
+        <td><b>{E(nombre)}</b><span class="norma">{E(ref)} · {E(familia)}
+          {(" · " + E(nota)) if nota else ""}</span>{sug}</td>
+        <td class="n">
+          <label style="margin-right:8px"><input type="radio"
+            name="ap_{E(idd)}" value="si" {"checked" if estado is True else ""}> Sí</label>
+          <label><input type="radio" name="ap_{E(idd)}" value="no"
+            {"checked" if estado is False else ""}> No</label></td>
+        <td><input name="mo_{E(idd)}" value="{E(motivo)}" placeholder="motivo"
+          style="width:100%; font-size:13px"></td>
+      </tr>""")
+
+    decididos = sum(1 for d in decidido.values() if d.get("aplica") is not None)
+    aviso = (f'<div class="semaforo pendiente"><b>{porque_propuesta}</b>'
+             f'He marcado una propuesta en los que tengo criterio. '
+             f'Nada cuenta hasta que lo confirmes: una propuesta mía no es una '
+             f'decisión tuya.</div>' if porque_propuesta else "")
+
+    cuerpo = f"""
+    <div class="hoja">
+      {aviso}
+      <h2>Aplicabilidad · {decididos} de {len(cat.DELITOS)} decididos</h2>
+      <p class="sub">El apartado <b>4.5.2</b> de la UNE 19601:2025 exige
+        considerar <b>todos</b> los delitos del Código Penal vigente.
+        Considerar no es borrar de la lista: es dejar escrito por qué se
+        descarta. Un «no aplica» sin motivo no se sostiene delante de nadie.</p>
+      <form method="post" action="/compliance/proyecto/{E(clave)}/aplicabilidad">
+        <table>
+          <tr><th></th><th>Delito</th><th class="n">¿Aplica?</th>
+              <th>Motivo</th></tr>
+          {"".join(filas)}
+        </table>
+        <div class="fila" style="margin-top:16px">
+          <button>Guardar la aplicabilidad</button>
+          <a href="/compliance/proyecto/{E(clave)}"
+             style="color:{GRIS};font-size:13.5px">volver al expediente</a>
+        </div>
+      </form>
+    </div>"""
+    return _marco(p["empresa"], cuerpo,
+                  f"/compliance/proyecto/{E(clave)}",
+                  "Qué delitos le pueden pasar a esta organización")
+
+
+def pagina_transcripcion(clave, fichero):
+    """El texto de una entrevista: verlo, o pegarlo si no se pudo sacar."""
+    import procesar_entrevista as pe                  # noqa: PLC0415
+    p = pr.leer(clave)
+    if p is None:
+        return _marco("No existe", '<div class="hoja"><p>No está.</p></div>',
+                      "/tarjeta/compliance")
+    ficha = next((e for e in (p.get("entrevistas") or [])
+                  if e.get("fichero") == fichero), None)
+    texto = pe.leer_transcripcion(clave, fichero)
+    aviso = ""
+    if not texto:
+        aviso = ('<div class="semaforo no_se"><b>Esto todavía no se '
+                 'transcribe solo</b>En este equipo no hay motor de '
+                 'transcripción instalado, y la entrevista no puede salir a '
+                 'la nube. Así que de momento el camino es pegar aquí el '
+                 'texto. Prefiero decirlo a poner un botón que parezca que '
+                 'transcribe y no lo haga: alguien daría por transcrita una '
+                 'entrevista que nadie ha escuchado.</div>')
+    cuerpo = f"""
+    <div class="hoja">
+      {aviso}
+      <h2>{E(ficha.get('area') if ficha else '')} ·
+        {E(ficha.get('entrevistado') if ficha else '')}</h2>
+      <p class="sub">{E(fichero)}
+        {(" · " + E(ficha.get('origen_texto'))) if ficha and ficha.get('origen_texto') else ""}</p>
+      <form method="post" action="/compliance/proyecto/{E(clave)}/entrevista/{E(fichero)}/texto">
+        <textarea name="texto" rows="22" style="width:100%; font-size:13.5px"
+          placeholder="Pega aquí la transcripción de la entrevista…">{E(texto)}</textarea>
+        <div class="fila" style="margin-top:12px">
+          <button>Guardar la transcripción</button>
+          <a href="/compliance/proyecto/{E(clave)}"
+             style="color:{GRIS};font-size:13.5px">volver al expediente</a>
+        </div>
+      </form>
+    </div>"""
+    return _marco(p["empresa"], cuerpo, f"/compliance/proyecto/{E(clave)}",
+                  "Entrevista")
