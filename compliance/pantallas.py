@@ -244,68 +244,161 @@ def _linea(x, clave=""):
 
 
 
-def _caja_pregunta(clave, p):
-    """La siguiente pregunta, y sólo esa.
+def _valor_para_form(p, campo):
+    """Lo contestado, en el formato que espera el campo del formulario."""
+    v = p.get(campo)
+    if campo == "areas":
+        return ", ".join(v or [])
+    if campo == "apetito":
+        return "" if v is None else str(v)
+    if isinstance(v, list):
+        return v
+    return str(v or "")
+
+
+def _caja_pregunta(clave, p, editar=""):
+    """La siguiente pregunta -o la que se quiera corregir-, y solo esa.
 
     Ignacio, 26/08/2026: "no me preguntas lo que necesitas de la Excel".
-    Aquí es donde la herramienta pregunta. Una cada vez, con su porqué
-    delante: lo que se pide sin explicar por qué se contesta a desgana, y en
+    Aqui es donde la herramienta pregunta. Una cada vez, con su porque
+    delante: lo que se pide sin explicar por que se contesta a desgana, y en
     este trabajo la respuesta acaba en un informe que firma alguien.
+
+    Y TODO SE PUEDE CORREGIR. Ignacio, el mismo dia: "me he equivocado en un
+    par de cosas y no veo posibilidad de cambio". Faltaba lo mas elemental:
+    una respuesta dada no se podia tocar. Un expediente que dura semanas se
+    corrige por el camino -cambia el alcance, aparece un area, el cliente
+    aprueba otro umbral-, y una herramienta donde solo se puede avanzar
+    obliga a empezar de cero por una errata.
     """
     import preguntas as pg                            # noqa: PLC0415
     hechas, total = pg.cuantas(p)
-    q = pg.siguiente(p)
-    if q is None:
-        return (f'<div class="hoja"><h2>Todo preguntado</h2>'
-                f'<p class="sub">Las {total} respuestas están. Lo siguiente '
-                f'es la aplicabilidad de los 43 delitos y las entrevistas.</p>'
-                f'</div>')
-    campo, pregunta, ayuda, porque, tipo, opciones = q
-    if tipo == "largo":
-        campo_html = (f'<textarea name="valor" rows="3" required '
-                      f'style="width:100%"></textarea>')
-    elif tipo == "opciones":
-        ops = "".join(f'<option>{E(o)}</option>' for o in opciones)
-        campo_html = f'<select name="valor" required style="min-width:320px">{ops}</select>'
-    elif tipo == "opciones_varias":
-        campo_html = "".join(
-            f'<label style="display:block;margin:5px 0;font-size:14px">'
-            f'<input type="checkbox" name="valor" value="{E(o)}" checked> '
-            f'{E(o)}</label>' for o in opciones)
-    elif tipo == "fecha_hoy":
-        campo_html = ('<input name="valor" type="date" required '
-                      'value="" style="width:190px">')
-    elif tipo == "apetito":
-        campo_html = ('<div class="fila">'
-                      '<input name="valor" type="number" min="1" max="25" '
-                      'placeholder="1-25" style="width:110px">'
-                      '<input name="firmado" placeholder="Aprobado por" '
-                      'style="min-width:230px">'
-                      '<input name="fecha" type="date" style="width:180px">'
-                      '</div>')
+    if editar:
+        q = next((x for x in pg.PREGUNTAS if x[0] == editar), None)
+        titulo = "CORRIGIENDO"
     else:
-        campo_html = '<input name="valor" required style="min-width:420px">'
+        q = pg.siguiente(p)
+        titulo = f"SIGUIENTE PREGUNTA \u00b7 {hechas} de {total}"
+    if q is None:
+        return ('<div class="hoja"><h2>Todo preguntado</h2>'
+                '<p class="sub">Las respuestas estan, y todas se pueden '
+                'corregir aqui abajo. Lo siguiente es la aplicabilidad de los '
+                '43 delitos y las entrevistas.</p></div>')
+    campo, pregunta, ayuda, porque, tipo, opciones = q
+    actual = _valor_para_form(p, campo)
 
-    return f'''
-    <div class="hoja" style="border-left:5px solid {ROJO}">
-      <p style="margin:0 0 6px;font-size:12px;letter-spacing:.08em;
-         color:{GRIS};font-weight:600">SIGUIENTE PREGUNTA · {hechas} de {total}</p>
-      <h2 style="font-size:22px">{E(pregunta)}</h2>
-      <p class="sub" style="margin:0 0 6px">{E(ayuda)}</p>
-      <p style="margin:0 0 14px;font-size:13.5px;color:{ROJO}">
-        <b>Para qué sirve:</b> {E(porque)}</p>
-      <form method="post" action="/compliance/proyecto/{E(clave)}/responder">
-        <input type="hidden" name="campo" value="{E(campo)}">
-        {campo_html}
-        <div class="fila" style="margin-top:12px">
-          <button>Guardar y siguiente</button>
-          <a href="/compliance/proyecto/{E(clave)}?saltar={E(campo)}"
-             style="color:{GRIS};font-size:13.5px">lo dejo para luego</a>
-        </div>
-      </form>
-    </div>'''
+    if tipo == "largo":
+        campo_html = ('<textarea name="valor" rows="3" required '
+                      'style="width:100%">' + E(actual) + '</textarea>')
+    elif tipo == "opciones":
+        ops = "".join(
+            '<option ' + ("selected" if o == actual else "") + '>'
+            + E(o) + '</option>' for o in opciones)
+        campo_html = ('<select name="valor" required style="min-width:320px">'
+                      + ops + '</select>')
+    elif tipo == "opciones_varias":
+        marcados = actual if isinstance(actual, list) else []
+        campo_html = "".join(
+            '<label style="display:block;margin:5px 0;font-size:14px">'
+            '<input type="checkbox" name="valor" value="' + E(o) + '" '
+            + ("checked" if (o in marcados or not marcados) else "") + '> '
+            + E(o) + '</label>' for o in opciones)
+    elif tipo == "fecha_hoy":
+        campo_html = ('<input name="valor" type="date" required value="'
+                      + E(actual) + '" style="width:190px">')
+    elif tipo == "apetito":
+        campo_html = (
+            '<div class="fila">'
+            '<input name="valor" type="number" min="1" max="25" value="'
+            + E(actual) + '" placeholder="1-25" style="width:110px">'
+            '<input name="firmado" placeholder="Aprobado por" value="'
+            + E(p.get("apetito_firmado_por") or "") + '" style="min-width:230px">'
+            '<input name="fecha" type="date" value="'
+            + E(p.get("apetito_fecha") or "") + '" style="width:180px">'
+            '</div>')
+    else:
+        campo_html = ('<input name="valor" required value="' + E(actual)
+                      + '" style="min-width:420px">')
 
-def pagina_proyecto(clave):
+    boton = "Guardar el cambio" if editar else "Guardar y siguiente"
+    salida = "cancelar" if editar else "lo dejo para luego"
+    return (
+        '<div class="hoja" style="border-left:5px solid ' + ROJO + '">'
+        '<p style="margin:0 0 6px;font-size:12px;letter-spacing:.08em;color:'
+        + GRIS + ';font-weight:600">' + E(titulo) + '</p>'
+        '<h2 style="font-size:22px">' + E(pregunta) + '</h2>'
+        '<p class="sub" style="margin:0 0 6px">' + E(ayuda) + '</p>'
+        '<p style="margin:0 0 14px;font-size:13.5px;color:' + ROJO + '">'
+        '<b>Para que sirve:</b> ' + E(porque) + '</p>'
+        '<form method="post" action="/compliance/proyecto/' + E(clave)
+        + '/responder">'
+        '<input type="hidden" name="campo" value="' + E(campo) + '">'
+        + campo_html +
+        '<div class="fila" style="margin-top:12px">'
+        '<button>' + boton + '</button>'
+        '<a href="/compliance/proyecto/' + E(clave) + '" style="color:'
+        + GRIS + ';font-size:13.5px">' + salida + '</a>'
+        '</div></form></div>')
+
+
+def _caja_respuestas(clave, p):
+    """Lo ya contestado, con un modificar en cada linea."""
+    import preguntas as pg                            # noqa: PLC0415
+    filas = []
+    for campo, pregunta, _a, _b, _tipo, _ops in pg.PREGUNTAS:
+        if not pg._contestada(p, campo):
+            continue
+        v = p.get(campo)
+        if campo == "areas":
+            texto = ", ".join(v or [])
+        elif campo == "disparadores":
+            texto = str(len(v or [])) + " marcados"
+        elif campo == "apetito":
+            texto = (str(v) + " \u00b7 aprobado por "
+                     + (p.get("apetito_firmado_por") or "SIN FIRMA"))
+        else:
+            texto = str(v or "")
+        filas.append(
+            '<tr><td style="width:34%">' + E(pregunta) + '</td>'
+            '<td><b>' + E(texto[:150]) + '</b></td>'
+            '<td class="n"><a href="/compliance/proyecto/' + E(clave)
+            + '?editar=' + E(campo) + '" style="color:' + ROJO
+            + ';font-weight:600;text-decoration:none;font-size:13px">'
+            'modificar</a></td></tr>')
+    if not filas:
+        return ""
+    return (
+        '<div class="hoja"><h2>Lo contestado</h2>'
+        '<p class="sub">Todo se puede corregir. Un expediente que dura '
+        'semanas cambia por el camino: se amplia el alcance, aparece un '
+        'area, el cliente aprueba otro umbral.</p>'
+        '<table>' + "".join(filas) + '</table></div>')
+
+
+def _caja_datos(clave, p):
+    """Los datos de cabecera: nombre, CIF y tipo de trabajo, corregibles."""
+    tipos = ["Sistema de gesti\u00f3n de riesgos penales (SGRP)",
+             "Auditor\u00eda interna UNE 19601:2025",
+             "Transici\u00f3n 2017 a 2025", "Seguimiento"]
+    ops = "".join('<option ' + ("selected" if x == p.get("tipo_trabajo") else "")
+                  + '>' + E(x) + '</option>' for x in tipos)
+    return (
+        '<div class="hoja"><h2>Datos del proyecto</h2>'
+        '<p class="sub">Si el nombre o el CIF entraron mal, se cambian '
+        'aqui.</p>'
+        '<form method="post" action="/compliance/proyecto/' + E(clave)
+        + '/datos" class="fila">'
+        '<input name="empresa" value="' + E(p.get("empresa")) + '" '
+        'style="min-width:260px">'
+        '<input name="cif" value="' + E(p.get("cif") or "") + '" '
+        'placeholder="CIF" style="width:140px">'
+        '<select name="tipo_trabajo" style="min-width:300px">' + ops + '</select>'
+        '<input name="responsable" value="' + E(p.get("responsable") or "")
+        + '" placeholder="Responsable" style="width:170px">'
+        '<button>Guardar</button></form></div>')
+
+
+def pagina_proyecto(clave, editar=""):
     rev = sp.revisar(clave)
     if rev is None:
         return _marco("No existe", '<div class="hoja"><p>Ese proyecto no está.</p></div>',
@@ -327,9 +420,14 @@ def pagina_proyecto(clave):
                  ("pendiente" if e.get("transcrita") else "no_se"))
         base = f"/compliance/proyecto/{E(clave)}/entrevista/{E(f)}"
         if e.get("transcrita"):
-            accion = (f'<a href="{base}/texto" style="color:{ROJO};'
-                      f'font-weight:600;text-decoration:none;font-size:13px">'
-                      f'ver el texto</a>')
+            # EL EDITOR ES LA PUERTA PRINCIPAL. Ver el texto corrido sirve de
+            # poco: lo que se usa es la entrevista en turnos, con quién habla
+            # y lo resaltado.
+            accion = (f'<a href="{base}/editor" style="color:{ROJO};'
+                      f'font-weight:700;text-decoration:none;font-size:13px">'
+                      f'&rarr; editar</a> · '
+                      f'<a href="{base}/texto" style="color:{GRIS};'
+                      f'text-decoration:none;font-size:12.5px">texto</a>')
             if not e.get("confirmada"):
                 accion += (f' · <form method="post" style="display:inline" '
                            f'action="{base}/confirmar"><button class="claro" '
@@ -356,15 +454,42 @@ def pagina_proyecto(clave):
         '<tr><td colspan="7" style="color:#8a8578">Todavía no hay '
         'ninguna.</td></tr>')
 
+    # LOS QUE YA EXISTEN SE PUEDEN ABRIR. Ignacio, 26/08/2026: "no puedo
+    # descargar". Los entregables generados estaban en el disco pero la
+    # pantalla sólo los listaba como "pendiente", sin enlace: había que ir a
+    # buscarlos por el explorador. Un entregable que no se puede abrir desde
+    # donde se anuncia no está entregado.
+    import proyectos as _pr                           # noqa: PLC0415
+    _carpeta = _pr.carpeta(clave) / "entregables"
+    _hechos = {}
+    if _carpeta.is_dir():
+        for _f in _carpeta.glob("*"):
+            if _f.is_file():
+                _partes = _f.name.split("-")
+                for _t in ("INF", "CDM", "MTZ", "MET", "PLA", "REV", "HAL",
+                           "PAC", "MAD"):
+                    if f"-{_t}-" in _f.name:
+                        _hechos[_t] = _f.name
     entregas = en.del_proyecto(p)
-    filas_ent2 = "".join(f"""<tr><td class="cod">{E(x['codigo'])}</td>
-        <td><b>{E(x['nombre'])}</b><br><span class="norma">{E(x['origen'])}</span></td>
-        <td>{E(x['grupo'])}</td><td>{E(x['audiencia'])}</td>
-        <td><span class="et pendiente">{E(x['estado'])}</span></td></tr>"""
-        for x in entregas)
+    _lineas_ent = []
+    for x in entregas:
+        _f = _hechos.get(x["tipo"])
+        if _f:
+            _est = (f'<a href="/compliance/proyecto/{E(clave)}/entregable/'
+                    f'{E(_f)}" style="color:{ROJO};font-weight:600;'
+                    f'text-decoration:none">&darr; abrir</a>')
+        else:
+            _est = f'<span class="et pendiente">{E(x["estado"])}</span>'
+        _lineas_ent.append(
+            f'<tr><td class="cod">{E(x["codigo"])}</td>'
+            f'<td><b>{E(x["nombre"])}</b><br>'
+            f'<span class="norma">{E(x["origen"])}</span></td>'
+            f'<td>{E(x["grupo"])}</td><td>{E(x["audiencia"])}</td>'
+            f'<td class="n">{_est}</td></tr>')
+    filas_ent2 = "".join(_lineas_ent)
 
     areas = ", ".join(p.get("areas") or []) or "sin definir"
-    cuerpo = _caja_pregunta(clave, p) + f"""
+    cuerpo = _caja_pregunta(clave, p, editar) + f"""
     <div class="hoja">
       <div class="semaforo {rev['estado']}">
         <b>{'Todo en regla' if rev['estado']=='hecho' else
@@ -432,6 +557,7 @@ def pagina_proyecto(clave):
       </table>
     </div>
 
+    """ + _caja_respuestas(clave, p) + _caja_datos(clave, p) + f"""
     <div class="hoja">
       <h2>Entregables</h2>
       <p class="sub">Con su código desde que nacen. Un documento sin código,
@@ -885,11 +1011,13 @@ def pagina_aplicabilidad(clave):
           {(" · " + E(nota)) if nota else ""}</span>{sug}</td>
         <td class="n">
           <label style="margin-right:8px"><input type="radio"
-            name="ap_{E(idd)}" value="si" {"checked" if estado is True else ""}> Sí</label>
+            name="ap_{E(idd)}" value="si" {"checked" if estado is True else ""}
+            onchange="motivo(this,'{E(idd)}')"> Sí</label>
           <label><input type="radio" name="ap_{E(idd)}" value="no"
-            {"checked" if estado is False else ""}> No</label></td>
-        <td><input name="mo_{E(idd)}" value="{E(motivo)}" placeholder="motivo"
-          style="width:100%; font-size:13px"></td>
+            {"checked" if estado is False else ""}
+            onchange="motivo(this,'{E(idd)}')"> No</label></td>
+        <td><input name="mo_{E(idd)}" id="mo_{E(idd)}" value="{E(motivo)}"
+          placeholder="motivo" style="width:100%; font-size:13px"></td>
       </tr>""")
 
     decididos = sum(1 for d in decidido.values() if d.get("aplica") is not None)
@@ -918,7 +1046,24 @@ def pagina_aplicabilidad(clave):
              style="color:{GRIS};font-size:13.5px">volver al expediente</a>
         </div>
       </form>
-    </div>"""
+    </div>
+<script>
+// EL MOTIVO POR DEFECTO AL DESCARTAR. Ignacio, 26/08/2026: "cuando en el
+// delito se elige NO, la razón por defecto es que no hay actividad
+// relacionada con el tipo". Es el motivo de nueve de cada diez descartes, y
+// escribirlo cuarenta veces a mano es la vía rápida a dejarlo en blanco -que
+// es justo lo que el 4.5.2 no permite-. Se rellena solo y se puede cambiar.
+const PORDEFECTO = "No hay actividad relacionada con el tipo.";
+function motivo(radio, id){{
+  const campo = document.getElementById('mo_' + id);
+  if(!campo) return;
+  if(radio.value === 'no'){{
+    if(!campo.value.trim()) campo.value = PORDEFECTO;
+  }} else if(campo.value.trim() === PORDEFECTO){{
+    campo.value = '';   // si pasa a Sí, ese motivo ya no vale
+  }}
+}}
+</script>"""
     return _marco(p["empresa"], cuerpo,
                   f"/compliance/proyecto/{E(clave)}",
                   "Qué delitos le pueden pasar a esta organización")
@@ -962,3 +1107,443 @@ def pagina_transcripcion(clave, fichero):
     </div>"""
     return _marco(p["empresa"], cuerpo, f"/compliance/proyecto/{E(clave)}",
                   "Entrevista")
+
+
+# ---------------------------------------------------------------------------
+# EL EDITOR DE ENTREVISTAS
+# ---------------------------------------------------------------------------
+def pagina_editor(clave, entrevista):
+    """La entrevista en turnos, para identificar quién habla y resaltar.
+
+    Ignacio, 28/08/2026: "necesito que haya un modo de editar, que permita
+    identificar al entrevistado, resaltar lo que más me interesa... párrafos
+    separados con las preguntas y contestaciones". Y sobre quién separa los
+    turnos: "lo haré yo".
+
+    Así que la propuesta automática es sólo un punto de partida: lo que
+    importa aquí es que corregir sea rápido. Un clic cambia el hablante, un
+    clic resalta. Sin formularios ni guardar a mano: cada cambio se escribe.
+    """
+    import editor_entrevistas as ed                   # noqa: PLC0415
+    p = pr.leer(clave)
+    if p is None:
+        return _marco("No existe", '<div class="hoja"><p>No está.</p></div>',
+                      "/tarjeta/compliance")
+    ficha = next((e for e in (p.get("entrevistas") or [])
+                  if e.get("fichero") == entrevista), {})
+    d = ed.cargar(clave, entrevista)
+    turnos = d["turnos"]
+
+    filas = []
+    for t in turnos:
+        suyo = t["quien"] == "entrevistado"
+        color = "#FBF8F5" if suyo else "#fff"
+        borde = ROJO if suyo else "#D8D2C8"
+        marca = "#FFF6DC" if t.get("marcado") else color
+        filas.append(f"""
+      <div class="turno" id="t{t['n']}" data-n="{t['n']}"
+           style="background:{marca}; border-left:4px solid {borde}">
+        <div class="cab">
+          <button class="quien" onclick="cambiar({t['n']})"
+            title="Cambiar quién habla">{'ENTREVISTADO' if suyo else 'ENTREVISTADOR'}</button>
+          <span class="min">{E(t['minuto'])}</span>
+          <span class="cert cert-{t['certeza']}">{t['certeza']}</span>
+          <span class="pal">{t['palabras']} palabras</span>
+          <button class="marcar" onclick="marcar({t['n']})"
+            title="Resaltar">{'★' if t.get('marcado') else '☆'}</button>
+        </div>
+        <div class="texto" contenteditable="true"
+             onblur="texto({t['n']}, this.innerText)">{E(t['texto'])}</div>
+        <input class="nota" placeholder="nota…" value="{E(t.get('nota',''))}"
+               onblur="nota({t['n']}, this.value)">
+      </div>""")
+
+    marcados = sum(1 for t in turnos if t.get("marcado"))
+    cuerpo = f"""
+    <div class="hoja">
+      <div class="fila" style="justify-content:space-between">
+        <div>
+          <h2 style="margin:0">{E(ficha.get('area') or 'Sin área')}</h2>
+          <p class="sub" style="margin:2px 0 0">{E(ficha.get('entrevistado') or 'Sin identificar')}
+            · {E(entrevista)} · {len(turnos)} turnos · <b>{marcados} resaltados</b></p>
+        </div>
+        <div class="fila">
+          <input id="area" placeholder="Área" value="{E(ficha.get('area',''))}"
+                 style="width:190px">
+          <input id="quien" placeholder="Entrevistado y puesto"
+                 value="{E(ficha.get('entrevistado',''))}" style="width:260px">
+          <button onclick="ficha()">Guardar identificación</button>
+        </div>
+      </div>
+      {'<div class="semaforo pendiente"><b>Los turnos son una propuesta</b>'
+       'El motor de transcripción no distingue voces: he cortado por las '
+       'pausas, las preguntas y la longitud. Corrige lo que falle — un clic '
+       'en la etiqueta cambia el hablante.</div>' if d.get('propuesta') else ''}
+    </div>
+    <div class="hoja" id="conversacion">
+      {''.join(filas) if filas else '<p class="sub">Sin contenido.</p>'}
+    </div>
+
+<style>
+  .turno{{ padding:10px 14px; margin:0 0 8px; border-radius:0 8px 8px 0; }}
+  .turno .cab{{ display:flex; gap:10px; align-items:center; margin-bottom:5px; }}
+  .turno .quien{{ font-size:11px; letter-spacing:.06em; font-weight:600;
+     padding:2px 9px; border-radius:10px; border:1px solid #D8D2C8;
+     background:#fff; color:{ROJO}; cursor:pointer; }}
+  .turno .min{{ font-family:Consolas,monospace; font-size:12px; color:{GRIS}; }}
+  .turno .cert{{ font-size:11px; padding:1px 7px; border-radius:9px; }}
+  .cert-alta{{ background:#DFF0E6; color:#0F5F3A; }}
+  .cert-media{{ background:#FDF0DC; color:#8A5A00; }}
+  .cert-baja{{ background:#FBE0E0; color:#9B2C2C; }}
+  .turno .pal{{ font-size:11.5px; color:#a8a296; margin-left:auto; }}
+  .turno .marcar{{ background:none; border:none; font-size:19px; cursor:pointer;
+     color:{ROJO}; padding:0 4px; }}
+  .turno .texto{{ font-size:14.5px; line-height:1.55; outline:none;
+     padding:3px 0; }}
+  .turno .texto:focus{{ background:#fff; box-shadow:0 0 0 2px #E0DAD1; }}
+  .turno .nota{{ width:100%; margin-top:5px; font-size:12.5px; border:none;
+     border-bottom:1px dashed #D8D2C8; border-radius:0; padding:3px 0;
+     background:transparent; }}
+</style>
+<script>
+const CLAVE = XJSONCLAVEX, ENT = XJSONENTX;
+let DATOS = XJSONDATOSX;
+function pintar(){{ location.reload(); }}
+async function salvar(){{
+  await fetch(`/compliance/proyecto/${{CLAVE}}/entrevista/${{ENT}}/edicion`,{{
+    method:'POST', headers:{{'Content-Type':'application/json'}},
+    body: JSON.stringify(DATOS)}});
+}}
+function cambiar(n){{
+  const t = DATOS.turnos[n];
+  t.quien = t.quien === 'entrevistado' ? 'entrevistador' : 'entrevistado';
+  t.certeza = 'alta';                 // lo ha dicho una persona
+  salvar().then(pintar);
+}}
+function marcar(n){{
+  DATOS.turnos[n].marcado = !DATOS.turnos[n].marcado;
+  salvar().then(pintar);
+}}
+function texto(n, v){{ DATOS.turnos[n].texto = v; salvar(); }}
+function nota(n, v){{ DATOS.turnos[n].nota = v; salvar(); }}
+async function ficha(){{
+  await fetch(`/compliance/proyecto/${{CLAVE}}/entrevista/${{ENT}}/ficha`,{{
+    method:'POST', headers:{{'Content-Type':'application/json'}},
+    body: JSON.stringify({{area: document.getElementById('area').value,
+                          quien: document.getElementById('quien').value}})}});
+  pintar();
+}}
+</script>"""
+    import json as _json
+    cuerpo = cuerpo.replace("{json_clave!r}", _json.dumps(clave)) \
+                   .replace("{json_ent!r}", _json.dumps(entrevista)) \
+                   .replace("{json_datos}", _json.dumps(d, ensure_ascii=False))
+    return _marco(p["empresa"], cuerpo, f"/compliance/proyecto/{E(clave)}",
+                  "Editor de entrevista")
+
+
+# ---------------------------------------------------------------------------
+# LA TARJETA GENERAL DE HERRAMIENTAS
+# ---------------------------------------------------------------------------
+def pagina_herramientas(sector=""):
+    """Lo que sabemos, ordenado por sector, para reutilizarlo.
+
+    Ignacio, 28/08/2026: "una tarjeta general de herramientas compliance que
+    además se vaya nutriendo con lo hecho en otros proyectos... si trabajo en
+    una empresa del tercer sector, reutilizar las herramientas que ya hemos
+    usado". Y sobre si la tarjeta debía colgar de Compliance o ser general:
+    "general".
+    """
+    import biblioteca as bi                           # noqa: PLC0415
+    import entrevistas as ev                          # noqa: PLC0415
+    cuenta = bi.cuenta()
+
+    tarjetas = []
+    for clave, nombre in bi.SECTORES:
+        c = cuenta.get(clave, {})
+        total = sum(c.values())
+        if total == 0 and clave != "general":
+            continue
+        detalle = " · ".join(f"{n} {dict(bi.TIPOS)[t].lower()}"
+                             for t, n in c.items()) or "vacío todavía"
+        marca = " style=\"border-left-color:#127A4A\"" if clave == sector else ""
+        tarjetas.append(f"""
+      <a class="emp" href="/compliance/herramientas?sector={E(clave)}"{marca}>
+        <h3>{E(nombre)}</h3>
+        <span class="dato">{detalle}</span>
+      </a>""")
+
+    piezas = ""
+    if sector:
+        lista = bi.para_sector(sector)
+        filas = "".join(
+            f'<tr><td class="cod">{E(p["id"])}</td>'
+            f'<td>{E(dict(bi.TIPOS).get(p["tipo"], p["tipo"]))}</td>'
+            f'<td>{E(p["texto"][:150])}</td>'
+            f'<td class="n">{p.get("veces",1)}</td>'
+            f'<td class="norma">{E(" · ".join(p.get("proyectos",[])[:2]))}</td>'
+            f'</tr>' for p in lista[:120])
+        piezas = f"""
+    <div class="hoja">
+      <h2>{E(bi.nombre_sector(sector))}</h2>
+      <p class="sub">Ordenado por veces que ha aparecido: una conducta vista
+        en seis proyectos es más fiable que una vista en uno.</p>
+      <table><tr><th>ID</th><th>Tipo</th><th>Texto</th><th class="n">Veces</th>
+        <th>De dónde viene</th></tr>{filas or
+        '<tr><td colspan="5" style="color:#8a8578">Nada todavía para este '
+        'sector.</td></tr>'}</table>
+    </div>"""
+
+    guiones = "".join(
+        f'<a class="emp" href="/compliance/entrevistas?d={E(d[0])}">'
+        f'<h3>{E(d[1])}</h3><span class="dato">{len(d[3])} preguntas propias · '
+        f'{len(d[4])} documentos a pedir</span></a>' for d in ev.DEPARTAMENTOS)
+
+    cuerpo = f"""
+    <div class="hoja">
+      <h2>Qué es esto</h2>
+      <p class="sub">Lo que aprendemos en un proyecto queda aquí para el
+        siguiente. Se clasifica <b>por sector</b> porque el riesgo no es el
+        mismo: a una entidad del tercer sector le pesan las subvenciones, el
+        efectivo y las personas vulnerables; a una logística, los
+        trabajadores, el medio ambiente y el contrabando.</p>
+      <div class="semaforo pendiente">
+        <b>De aquí sale material redactado, nunca material confirmado</b>
+        Una conducta entra como propuesta y hay que confirmarla. Una
+        valoración entra como punto de partida y hay que justificarla con la
+        evidencia de esta casa. Y un control entra como MODELO, jamás como
+        implantado: heredar un control implantado de otro cliente sería
+        fabricar una conformidad que nadie ha comprobado.
+      </div>
+    </div>
+
+    <div class="hoja">
+      <h2>Por sector</h2>
+      <p class="sub">Pincha uno para ver lo que hay.</p>
+    </div>
+    <div class="rejilla">{"".join(tarjetas)}</div>
+    {piezas}
+
+    <div class="hoja" style="margin-top:20px">
+      <h2>Guiones de entrevista</h2>
+      <p class="sub">Diez departamentos, con preguntas abiertas y marcadas
+        con lo que alimenta cada una.</p>
+    </div>
+    <div class="rejilla">{guiones}</div>
+
+    <div class="hoja" style="margin-top:20px">
+      <h2>Nutrir la biblioteca</h2>
+      <p class="sub">Vuelca a la biblioteca las conductas y los controles de
+        un proyecto, con su sector.</p>
+      <form method="post" action="/compliance/herramientas/nutrir" class="fila">
+        <input name="clave" placeholder="clave del proyecto"
+               style="min-width:240px">
+        <select name="sector" style="min-width:300px">
+          {"".join(f'<option value="{E(c)}">{E(n)}</option>' for c, n in bi.SECTORES)}
+        </select>
+        <button>Volcar</button>
+      </form>
+    </div>"""
+    return _marco("Herramientas Compliance", cuerpo, "/",
+                  "La biblioteca de la casa: se nutre sola de cada proyecto.")
+
+
+# ---------------------------------------------------------------------------
+# EL PREGUNTADOR
+#
+# Ignacio, 02/09/2026: "una herramienta que sirva para lo que hacemos tú y yo
+# aquí, en la que Mamen pueda preguntarte todo lo que necesite, que esté por
+# encima de todos los proyectos".
+#
+# LA PANTALLA ES DELIBERADAMENTE SOSA. Es una conversación: lo que importa es
+# el texto y que se lea. Nada de adornos que compitan con lo que se está
+# leyendo.
+# ---------------------------------------------------------------------------
+_CSS_PREGUNTADOR = """
+ .hilo{max-width:820px;margin:0 auto}
+ .turno{margin:0 0 18px;padding:13px 16px;border-radius:10px;
+        white-space:pre-wrap;line-height:1.55}
+ .yo{background:#f2eef0;border-left:4px solid #8A2742}
+ .el{background:#fff;border:1px solid #e3dfe0}
+ .quien{display:block;font-size:11px;letter-spacing:.08em;
+        text-transform:uppercase;color:#8b8386;margin-bottom:6px}
+ form.preg{max-width:820px;margin:24px auto 0}
+ textarea{width:100%;box-sizing:border-box;min-height:96px;padding:12px;
+          border-radius:10px;border:1px solid #cfc9cb;font:inherit;
+          line-height:1.5;resize:vertical}
+ textarea:focus{outline:none;border-color:#8A2742}
+ .fila{display:flex;gap:10px;align-items:center;margin-top:10px}
+ button.mandar{padding:10px 22px;border:0;border-radius:8px;background:#8A2742;
+               color:#fff;font-size:15px;font-weight:600;cursor:pointer}
+ button.mandar:hover{background:#6E1F35}
+ button.mandar[disabled]{background:#b79aa3;cursor:default}
+ .limpiar{margin-left:auto;font-size:13px;color:#8b8386}
+ .aviso{max-width:820px;margin:14px auto;padding:10px 13px;border-radius:8px;
+        background:#fdecea;color:#7f1d1d;font-size:14px}
+ .vacio{max-width:820px;margin:0 auto;color:#8b8386;font-size:15px}
+"""
+
+
+# EL FORMULARIO Y SU SCRIPT, FUERA DEL f-STRING. El JavaScript lleva llaves,
+# y dentro de un f-string Python se las come: `function (e) {` reventaba el
+# módulo entero con un SyntaxError. Como aquí no hay nada que interpolar, van
+# como texto normal.
+_CAJA_PREGUNTADOR = """
+<form class="preg" method="post" action="/preguntador/preguntar">
+  <textarea name="texto" autofocus placeholder="Escribe tu pregunta..."></textarea>
+  <div class="fila">
+    <button class="mandar" type="submit">Preguntar</button>
+    <span class="limpiar">
+      <a href="/preguntador/limpiar"
+         onclick="return confirm('¿Borrar esta conversación? No se recupera.')"
+         >Empezar de cero</a></span>
+  </div>
+</form>"""
+
+_JS_PREGUNTADOR = """
+<script>
+// Enter manda, Mayus+Enter hace parrafo. Y al mandar se desactiva el boton:
+// una pregunta puede tardar y si no, se pulsa dos veces y se pregunta dos.
+document.querySelector('textarea').addEventListener('keydown', function (e) {
+  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); this.form.requestSubmit(); }
+});
+document.querySelector('form.preg').addEventListener('submit', function () {
+  var b = this.querySelector('button');
+  b.disabled = true; b.textContent = 'Pensando...';
+});
+window.scrollTo(0, document.body.scrollHeight);
+</script>"""
+
+
+def pagina_preguntador(usuario="", historial=None, aviso=""):
+    """La conversación de esta persona, y la caja para seguir preguntando."""
+    historial = historial or []
+    if historial:
+        turnos = "".join(
+            f'<div class="turno {"yo" if t["quien"] == "user" else "el"}">'
+            f'<span class="quien">'
+            f'{E(usuario or "yo") if t["quien"] == "user" else "IA ELECE"}'
+            f'</span>{E(t["texto"])}</div>'
+            for t in historial)
+        cuerpo_hilo = f'<div class="hilo">{turnos}</div>'
+    else:
+        cuerpo_hilo = (
+            '<p class="vacio">Aquí puedes preguntar lo que necesites sobre '
+            'todos los proyectos a la vez: comparar dos, ver qué falta por '
+            'cerrar, resolver una duda de método o de norma.<br><br>'
+            'Lo que se conteste sale de las fichas de los proyectos y del '
+            'conocimiento general de la materia, y siempre se dice de cuál '
+            'de las dos cosas. Lo que no consta, se dice que no consta.</p>')
+
+    caja = _CAJA_PREGUNTADOR + _JS_PREGUNTADOR
+
+    marco = _marco("Preguntador",
+                   (f'<div class="aviso">{E(aviso)}</div>' if aviso else "")
+                   + cuerpo_hilo + caja,
+                   lema="Por encima de todos los proyectos")
+    return marco.replace("</style>", _CSS_PREGUNTADOR + "</style>")
+
+
+# ---------------------------------------------------------------------------
+# LAWSCALE
+#
+# Ignacio, 02/09/2026: "vamos a colgar como tarjetas todo lo que hay aquí".
+# Una tarjeta por documento, leídas de la carpeta y no de una lista escrita,
+# para que lo que Mamen deje mañana aparezca solo.
+# ---------------------------------------------------------------------------
+# LOS COLORES SON LOS DE LAWSCALE, NO LOS DE ELECE. Esta marca es otra; el
+# resto de IA ELECE sigue en el rojo de la casa, y aquí manda la del proyecto.
+#
+# CUÁLES SON LOS BUENOS. Hay dos parejas dando vueltas y el 02/09/2026
+# costó fijarlo:
+#
+#   #323E53 / #E8BF25  -> los CORPORATIVOS. Son los del logo real, y así los
+#                         da el briefing de formación modular: "Azul marino
+#                         corporativo #323E53 ... Dorado corporativo #E8BF25".
+#   #233046 / #E7C236  -> variantes alternativas registradas. Son las que se
+#                         usaron en el PPTX de RRHH porque se extrajeron del
+#                         PDF del curso eIDAS-01.
+#
+# Yo llegué a los primeros muestreando los píxeles del logo, luego los
+# cambié a los segundos al leer el briefing de sesión, y el de formación
+# modular dejó claro que los primeros eran los correctos. Queda escrito aquí
+# para no volver a darle vueltas.
+# Estos dos no son de marca: son grises que valen para cualquiera. Los
+# colores de cada marca vienen en su Coleccion (material.py), que es donde
+# están escritos con su procedencia.
+LS_PIZARRA = "#5A6B86"          # texto secundario
+LS_FONDO = "#F4F6F9"            # fondo de las tarjetas
+
+
+def _css_marca(col):
+    LS_AZUL, LS_ORO = col.azul, col.oro
+    return f"""
+ h1{{color:{LS_AZUL}}}
+ .lema{{color:#6b7280}}
+ .volver{{color:{LS_AZUL}}}
+ .marca{{display:block;margin:0 auto 26px;max-width:230px}}
+ .docs{{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));
+       gap:16px;max-width:1100px;margin:0 auto}}
+ .doc{{display:block;background:{LS_FONDO};border:1px solid #e4e6eb;
+      border-radius:12px;
+      padding:16px 18px;text-decoration:none;color:inherit;
+      border-left:4px solid {LS_AZUL}}}
+ .doc.lee{{border-left-color:{LS_ORO}}}
+ .doc:hover{{box-shadow:0 4px 16px rgba(50,62,83,.14)}}
+ .doc h3{{margin:0 0 6px;font-size:15px;line-height:1.3;word-break:break-word;
+          color:{LS_AZUL}}}
+ .doc .que{{margin:0 0 10px;font-size:13px;color:{LS_PIZARRA};line-height:1.45}}
+ .doc .meta{{font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+            color:#8a919c}}
+ .leer{{max-width:900px;margin:0 auto;background:#fff;border:1px solid #e4e6eb;
+       border-top:3px solid {LS_ORO};
+       border-radius:12px;padding:24px 28px;white-space:pre-wrap;
+       line-height:1.6;font-size:15px}}
+ .vacio{{max-width:820px;margin:0 auto;color:{LS_PIZARRA}}}
+ .lemaLS{{max-width:1100px;margin:30px auto 0;padding:9px 16px;border-radius:8px;
+        background:{LS_ORO};color:{LS_AZUL};font-size:13px;font-weight:600;
+        text-align:right;letter-spacing:.02em}}
+ .vacio a{{color:{LS_AZUL}}}
+"""
+
+
+def pagina_material(clave):
+    """El material de una marca, una tarjeta por documento."""
+    import material as M                                 # noqa: PLC0415
+    col = M.COLECCIONES[clave]
+    docs = M.listar(col)
+    if not docs:
+        cuerpo = (f'<p class="vacio">Todavía no hay nada. Lo que se deje en '
+                  f'<code>{E(str(col.buzon))}</code> aparece solo aquí.</p>')
+    else:
+        trozos = []
+        for d in docs:
+            destino = (f"/material/{clave}/leer/{E(d['nombre'])}" if d["se_lee"]
+                       else f"/material/{clave}/doc/{E(d['nombre'])}")
+            que = f'<p class="que">{E(d["que_es"])}</p>' if d["que_es"] else ""
+            accion = "leer aquí" if d["se_lee"] else "abrir / descargar"
+            trozos.append(f"""
+      <a class="doc{' lee' if d['se_lee'] else ''}" href="{destino}">
+        <h3>{E(d['nombre'])}</h3>
+        {que}
+        <span class="meta">{E(d['tipo'])} · {E(d['tamano'])} · {accion}</span>
+      </a>""")
+        cuerpo = f'<div class="docs">{"".join(trozos)}</div>'
+    logo = (f'<img class="marca" src="/material/{clave}/doc/{col.logo}" '
+            f'alt="{E(col.titulo)}">' if col.logo else "")
+    banda = f'<div class="lemaLS">{E(col.lema)}</div>'
+    marco = _marco(col.titulo, logo + cuerpo + banda,
+                   lema="Material del proyecto")
+    return marco.replace("</style>", _css_marca(col) + "</style>")
+
+
+def pagina_material_leer(clave, nombre, texto):
+    """Un documento de texto, leído en pantalla."""
+    import material as M                                 # noqa: PLC0415
+    col = M.COLECCIONES[clave]
+    cuerpo = (f'<div class="leer">{E(texto)}</div>'
+              f'<p class="vacio" style="margin-top:18px">'
+              f'<a href="/material/{clave}/doc/{E(nombre)}">Descargar el fichero'
+              f'</a></p>')
+    marco = _marco(nombre, cuerpo, volver=f"/material/{clave}")
+    return marco.replace("</style>", _css_marca(col) + "</style>")

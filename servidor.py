@@ -26,10 +26,11 @@ abierto por descuido hoy.
 """
 
 import base64
+import os
 import sys
 from pathlib import Path
 
-from fastapi import FastAPI, Request
+from fastapi import FastAPI, Form, Request
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
 
 RAIZ = Path(__file__).resolve().parent
@@ -38,15 +39,171 @@ sys.path.insert(0, str(RAIZ / "compliance"))
 
 from panel_html import pagina, pagina_tarjeta  # noqa: E402
 
-HOST = "127.0.0.1"   # NO cambiar a 0.0.0.0 sin decidirlo: es un equipo de trabajo
-PUERTO = 8100        # el 8000 es de Colibrí
+# DÓNDE ESCUCHA. En el puesto de Ignacio, 127.0.0.1 y nada más. En el
+# servidor del despacho se pone IA_ELECE_HOST=0.0.0.0 para que Mamen entre
+# desde su navegador, y entonces se enciende sola la puerta de abajo.
+HOST = os.environ.get("IA_ELECE_HOST", "127.0.0.1")
+PUERTO = int(os.environ.get("IA_ELECE_PUERTO", "8100"))   # el 8000 es de Colibrí
 
 app = FastAPI(title="IA ELECE")
+
+# --------------------------------------------------------------------------- #
+# LA PUERTA
+#
+# DE DÓNDE VIENE. Ignacio, 02/09/2026: "lo de Mamen ya está claro: todo IA
+# ELECE debe estar a su disposición, no hace falta ni usuario ni contraseña.
+# Yo debo tener acceso a todo para ayudarle".
+#
+# LA CONTRASEÑA SÍ HACE FALTA, Y ES POR ESTO. Mientras IA ELECE viviera en el
+# ordenador de Ignacio, "sin contraseña" quería decir "sin estorbar a quien
+# ya está sentado delante". En el servidor del despacho quiere decir otra
+# cosa: que cualquiera que se enchufe a la red de la oficina abre el trabajo
+# de compliance, las entrevistas y las demandas. No es lo mismo, así que se
+# pide una vez.
+#
+# QUE NO ESTORBE: la sesión dura doce horas y la cookie se queda en su
+# navegador, así que Mamen escribe la clave por la mañana y no la vuelve a
+# ver en todo el día. Aquí no hay tarjetas ni permisos: quien entra, entra a
+# todo. Los permisos por tarjeta son cosa de Colibrí.
+# --------------------------------------------------------------------------- #
+# SE CARGA POR RUTA, NO METIENDO LA CARPETA EN sys.path. La primera versión
+# hacía `sys.path.insert(0, ...colibri-servidor/webapp)` y con eso el
+# `import supervisor` de IA ELECE dejaba de encontrar el suyo -el de
+# compliance- y se traía el de Colibrí, que se llama igual y no tiene nada
+# que ver. La pantalla de compliance se caía con un 500.
+def _cargar_usuarios():
+    import importlib.util                                # noqa: PLC0415
+    ruta = Path(os.environ.get(
+        "COLIBRI_WEBAPP",
+        r"C:/Users/Ignacio/Desktop/colibri-servidor/webapp")) / "usuarios.py"
+    spec = importlib.util.spec_from_file_location("colibri_usuarios", ruta)
+    modulo = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modulo)
+    return modulo
+
+
+_U = _cargar_usuarios()
+
+COOKIE = "iaelece_sesion"
+# LAWSCALE entra aquí también: es el proyecto especial de Mamen, y su
+# material vive en IA ELECE como una tarjeta más.
+PUEDEN = ("mamen", "ignacio", "lawscale")
+
+
+@app.middleware("http")
+async def _puerta(request: Request, call_next):
+    if HOST == "127.0.0.1" or request.url.path.startswith(
+            ("/entrar", "/salir", "/estatico/")):
+        return await call_next(request)
+    quien = _U.de_la_cookie(request.cookies.get(COOKIE))
+    if quien not in PUEDEN:
+        return RedirectResponse("/entrar", status_code=303)
+    request.state.usuario = quien
+    return await call_next(request)
+
+
+@app.get("/entrar", response_class=HTMLResponse)
+def puerta(mal: int = 0):
+    from panel_html import PUERTA_HTML                   # noqa: PLC0415
+    return PUERTA_HTML.format(aviso=(
+        '<div class="mal">Ese usuario o esa clave no son.</div>' if mal else ""))
+
+
+@app.post("/entrar")
+def puerta_abrir(usuario: str = Form(...), clave: str = Form(...)):
+    quien = (usuario or "").strip().lower()
+    if quien not in PUEDEN or not _U.comprobar(quien, clave):
+        return RedirectResponse("/entrar?mal=1", status_code=303)
+    r = RedirectResponse("/", status_code=303)
+    r.set_cookie(COOKIE, _U.firmar(quien), httponly=True, samesite="lax",
+                 max_age=_U.DURACION)
+    return r
+
+
+@app.get("/salir")
+def puerta_cerrar():
+    r = RedirectResponse("/entrar", status_code=303)
+    r.delete_cookie(COOKIE)
+    return r
 
 
 @app.get("/", response_class=HTMLResponse)
 def inicio():
     return pagina()
+
+
+@app.get("/preguntador", response_class=HTMLResponse)
+def preguntador(request: Request, aviso: str = ""):
+    """La conversación de quien haya entrado, y la caja para preguntar."""
+    import pantallas, preguntador as P                   # noqa: PLC0415
+    quien = getattr(request.state, "usuario", "") or "mamen"
+    return pantallas.pagina_preguntador(quien, P.historial(quien), aviso)
+
+
+@app.post("/preguntador/preguntar")
+def preguntador_preguntar(request: Request, texto: str = Form("")):
+    """Una pregunta. Se guarda el turno y se vuelve a la conversación.
+
+    SE VUELVE CON UN 303 Y NO SE PINTA LA RESPUESTA AQUÍ: así, al recargar la
+    página, no se repite la pregunta.
+    """
+    import preguntador as P                              # noqa: PLC0415
+    quien = getattr(request.state, "usuario", "") or "mamen"
+    r = P.preguntar(quien, texto)
+    if r.get("ok"):
+        return RedirectResponse("/preguntador", status_code=303)
+    from urllib.parse import quote                       # noqa: PLC0415
+    return RedirectResponse(f"/preguntador?aviso={quote(r.get('dicho', ''))}",
+                            status_code=303)
+
+
+@app.get("/preguntador/limpiar")
+def preguntador_limpiar(request: Request):
+    import preguntador as P                              # noqa: PLC0415
+    P.borrar(getattr(request.state, "usuario", "") or "mamen")
+    return RedirectResponse("/preguntador", status_code=303)
+
+
+@app.get("/material/{clave}", response_class=HTMLResponse)
+def material(clave: str):
+    """El material de una marca: LawScale o elece Legal."""
+    import material as M, pantallas                      # noqa: PLC0415
+    if clave not in M.COLECCIONES:
+        return RedirectResponse("/", status_code=303)
+    return pantallas.pagina_material(clave)
+
+
+@app.get("/material/{clave}/leer/{nombre}", response_class=HTMLResponse)
+def material_leer(clave: str, nombre: str):
+    import material as M, pantallas                      # noqa: PLC0415
+    if clave not in M.COLECCIONES:
+        return RedirectResponse("/", status_code=303)
+    texto = M.texto_de(M.COLECCIONES[clave], nombre)
+    if texto is None:
+        return RedirectResponse(f"/material/{clave}", status_code=303)
+    return pantallas.pagina_material_leer(clave, nombre, texto)
+
+
+@app.get("/material/{clave}/doc/{nombre}")
+def material_doc(clave: str, nombre: str):
+    """Sirve un fichero del material. La ruta la valida `material.py`."""
+    import material as M                                 # noqa: PLC0415
+    if clave not in M.COLECCIONES:
+        return RedirectResponse("/", status_code=303)
+    ruta = M.ruta_de(M.COLECCIONES[clave], nombre)
+    if ruta is None:
+        return RedirectResponse(f"/material/{clave}", status_code=303)
+    # LAS IMÁGENES SE VEN, NO SE DESCARGAN: pasar `filename` obliga al
+    # navegador a bajarse el fichero y el logo salía como icono roto.
+    if ruta.suffix.lower() in (".png", ".jpg", ".jpeg", ".gif", ".svg"):
+        return FileResponse(str(ruta))
+    return FileResponse(str(ruta), filename=ruta.name)
+
+
+@app.get("/lawscale")
+def lawscale_viejo():
+    """La dirección de antes sigue valiendo: puede estar en un favorito."""
+    return RedirectResponse("/material/lawscale", status_code=308)
 
 
 @app.get("/tarjeta/{tid}", response_class=HTMLResponse)
@@ -56,6 +213,9 @@ def tarjeta(tid: str):
     if tid == "compliance":
         import pantallas
         return pantallas.pagina_compliance()
+    if tid == "herramientas":
+        import pantallas
+        return pantallas.pagina_herramientas()
     return pagina_tarjeta(tid)
 
 
@@ -74,10 +234,30 @@ def compliance_metodologia():
 
 
 @app.get("/compliance/proyecto/{clave}", response_class=HTMLResponse)
-def compliance_proyecto(clave: str):
-    """El expediente de una empresa, con su supervisor y sus entrevistas."""
+def compliance_proyecto(clave: str, editar: str = ""):
+    """El expediente de una empresa, con su supervisor y sus entrevistas.
+
+    `editar` trae el campo que se quiere corregir: todo lo contestado se
+    puede volver a tocar."""
     import pantallas
-    return pantallas.pagina_proyecto(clave)
+    return pantallas.pagina_proyecto(clave, editar)
+
+
+@app.post("/compliance/proyecto/{clave}/datos")
+async def compliance_datos(clave: str, peticion: Request):
+    """Corrige el nombre, el CIF, el tipo de trabajo o el responsable."""
+    from urllib.parse import parse_qs, unquote_plus
+    import proyectos
+    p = proyectos.leer(clave)
+    if p is None:
+        return RedirectResponse("/tarjeta/compliance", status_code=303)
+    crudo = parse_qs((await peticion.body()).decode("utf-8"))
+    datos = {k: unquote_plus(v[0]) for k, v in crudo.items()}
+    for campo in ("empresa", "cif", "tipo_trabajo", "responsable"):
+        if campo in datos:
+            p[campo] = datos[campo].strip()
+    proyectos.guardar(p)
+    return RedirectResponse(f"/compliance/proyecto/{clave}", status_code=303)
 
 
 @app.post("/compliance/proyecto/{clave}/entrevista/{fichero}/procesar")
@@ -171,6 +351,57 @@ async def compliance_responder(clave: str, peticion: Request):
     return RedirectResponse(f"/compliance/proyecto/{clave}", status_code=303)
 
 
+@app.get("/compliance/herramientas", response_class=HTMLResponse)
+def compliance_herramientas(sector: str = ""):
+    """La biblioteca de la casa, por sector."""
+    import pantallas
+    return pantallas.pagina_herramientas(sector)
+
+
+@app.post("/compliance/herramientas/nutrir")
+async def compliance_nutrir(peticion: Request):
+    """Vuelca las conductas y controles de un proyecto a la biblioteca."""
+    from urllib.parse import parse_qs, unquote_plus
+    import biblioteca
+    crudo = parse_qs((await peticion.body()).decode("utf-8"))
+    datos = {k: unquote_plus(v[0]) for k, v in crudo.items()}
+    biblioteca.nutrir_desde(datos.get("clave", ""), datos.get("sector", "general"))
+    return RedirectResponse(
+        f"/compliance/herramientas?sector={datos.get('sector','')}",
+        status_code=303)
+
+
+@app.get("/compliance/proyecto/{clave}/entrevista/{fichero}/editor",
+         response_class=HTMLResponse)
+def compliance_editor(clave: str, fichero: str):
+    """El editor de la entrevista: turnos, hablante y resaltado."""
+    import pantallas
+    return pantallas.pagina_editor(clave, fichero)
+
+
+@app.post("/compliance/proyecto/{clave}/entrevista/{fichero}/edicion")
+async def compliance_edicion(clave: str, fichero: str, datos: dict):
+    """Guarda la edicion. NO toca la transcripcion original."""
+    import editor_entrevistas
+    editor_entrevistas.guardar(clave, fichero, datos)
+    return {"ok": True}
+
+
+@app.post("/compliance/proyecto/{clave}/entrevista/{fichero}/ficha")
+def compliance_ficha_entrevista(clave: str, fichero: str, datos: dict):
+    """Identifica area y entrevistado."""
+    import proyectos
+    p = proyectos.leer(clave)
+    if p is None:
+        return {"ok": False}
+    for e in p.get("entrevistas") or []:
+        if e.get("fichero") == fichero:
+            e["area"] = (datos.get("area") or "").strip()
+            e["entrevistado"] = (datos.get("quien") or "").strip()
+    proyectos.guardar(p)
+    return {"ok": True}
+
+
 @app.get("/compliance/entrevistas", response_class=HTMLResponse)
 def compliance_entrevistas(d: str = ""):
     """La arquitectura de entrevistas por departamento."""
@@ -197,6 +428,22 @@ def compliance_plantilla():
     generar_excel.generar(sitio, None)
     return FileResponse(sitio, filename=sitio.name, media_type=(
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"))
+
+
+@app.get("/compliance/proyecto/{clave}/entregable/{nombre}")
+def compliance_entregable(clave: str, nombre: str):
+    """Abre un entregable ya generado del expediente.
+
+    Ignacio, 26/08/2026: "no puedo descargar". Estaban en el disco pero sin
+    puerta desde la pantalla que los anuncia."""
+    import proyectos
+    if "/" in nombre or "\\" in nombre or nombre.startswith("."):
+        return HTMLResponse("no", status_code=400)
+    sitio = proyectos.carpeta(clave) / "entregables" / nombre
+    if not sitio.is_file():
+        return HTMLResponse("ese entregable no esta generado todavia",
+                            status_code=404)
+    return FileResponse(sitio, filename=nombre)
 
 
 @app.get("/compliance/proyecto/{clave}/matriz.xlsx")

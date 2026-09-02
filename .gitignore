@@ -22,3 +22,11 @@ __pycache__/
 # Windows
 Thumbs.db
 desktop.ini
+
+# MATERIAL DE TRABAJO, NO CÓDIGO. Carpetas que Ignacio deja sueltas en la
+# raíz con documentos de proyectos y de clientes -informes de auditoría,
+# documentos fuente-. Van con la misma regla que datos/: fuera de git.
+# Sin esto, un «git add -A» descuidado subiría el informe de un cliente.
+auditoria-compliance-cerlerglobal/
+COMPLIANCE  DIGITAL/
+entrada/
