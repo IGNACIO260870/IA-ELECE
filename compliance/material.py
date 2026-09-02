@@ -106,6 +106,32 @@ ELECE = Coleccion(
         "BRIEFING CONTEXTO GENERAL COMPOLIANCE.docx":
             "El briefing general: quién es quién, las dos marcas, los "
             "proyectos activos y las identidades visuales.",
+        "BRIEFING DESCONEXION DE DESPACHOS.docx":
+            "Documentación laboral del propio despacho: plantilla, convenio "
+            "de Oficinas y Despachos de Zaragoza y desconexión digital.",
+        "Protocolo_Desconexion_Digital_Zaragoza.docx":
+            "El protocolo de desconexión digital, listo para firmar.",
+        "Propuesta_eleceLegal_ProclinicGroup_UNE19601_ISO37001.docx":
+            "La propuesta de auditoría integrada para Proclinic Group, en "
+            "dos fases.",
+        "Anexo_Entregables_ProclinicGroup.docx":
+            "Qué se entrega en cada fase de Proclinic.",
+        "Propuesta_ProclinicGroup_Visual.pptx":
+            "La misma propuesta en presentación.",
+        "Informe_Auditoria_Compliance_CerlerGlobal_2026.docx":
+            "El informe de auditoría de compliance penal de Cerler.",
+        "Informe_Auditoria_Compliance_CerlerGlobal_2026.md":
+            "El mismo informe en texto, para leerlo aquí. OJO: éste dice «8 "
+            "de 12 documentos» y el Word dice «10 de 12»; hay que cuadrarlo "
+            "antes de usarlo.",
+        "01_Agente_Compliance_Instrucciones.docx":
+            "Instrucciones del agente de compliance del Kit.",
+        "02_Herramientas_Compliance.xlsx":
+            "Checklist y matriz de riesgos del Kit.",
+        "03_Guia_Agentes_Compliance.md":
+            "La guía de agentes: hoja de ruta en tres fases.",
+        "Resumen_Sesion_elece_legal.docx":
+            "Resumen de la sesión de trabajo del despacho.",
     })
 
 COLECCIONES = {c.clave: c for c in (LAWSCALE, ELECE)}
